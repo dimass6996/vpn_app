@@ -51,6 +51,37 @@ def test_auth_verify_and_me_flow() -> None:
     )
     assert me_response.status_code == 200
     assert me_response.json()["user_id"] == "demo-user"
+    assert me_response.json()["marzban_link_status"] == "pending"
+
+
+def test_manual_marzban_link_endpoint_links_existing_username(monkeypatch) -> None:
+    reset_db()
+
+    challenge_id = client.post(
+        "/api/v1/auth/start",
+        json={"login": "link-user", "device_id": "android-link-1"},
+    ).json()["challenge_id"]
+    payload = client.post(
+        "/api/v1/auth/verify",
+        json={
+            "challenge_id": challenge_id,
+            "code": "000000",
+            "device_id": "android-link-1",
+        },
+    ).json()
+
+    from app.services.marzban_link_service import marzban_client as service_client
+
+    monkeypatch.setattr(service_client, "get_user", lambda username: {"username": username})
+
+    response = client.post(
+        "/api/v1/me/marzban/link",
+        json={"marzban_username": "legacy_vpn_user"},
+        headers={"Authorization": f"Bearer {payload['access_token']}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["marzban_username"] == "legacy_vpn_user"
+    assert response.json()["marzban_link_status"] == "linked"
 
 
 def test_refresh_returns_new_access_token() -> None:

@@ -45,6 +45,7 @@ class AppController extends ChangeNotifier {
   MeResponse? _me;
   SubscriptionResponse? _subscription;
   List<ConfigItem> _configs = const [];
+  bool _marzbanLinkEndpointUnsupported = false;
 
   AuthStage get authStage => _authStage;
   bool get isLoading => _isLoading;
@@ -95,6 +96,10 @@ class AppController extends ChangeNotifier {
               'N/A');
   String get activeLocation => _vpnState.connected ? _vpnState.location : 'Not connected';
   String get vpnRuntimeDetails => _vpnState.details ?? 'No runtime details';
+  String get marzbanLinkStatus => _me?.marzbanLinkStatus ?? 'pending';
+  String? get marzbanUsername => _me?.marzbanUsername;
+  bool get isMarzbanLinked => marzbanLinkStatus == 'linked';
+  bool get isMarzbanLinkEndpointUnsupported => _marzbanLinkEndpointUnsupported;
   String get activeEndpointHost {
     if (_vpnState.connected && _vpnState.location.trim().isNotEmpty) {
       return _vpnState.location;
@@ -218,6 +223,31 @@ class AppController extends ChangeNotifier {
     await _guard(_refreshDashboardInternal);
   }
 
+  Future<void> linkMarzbanUser(String username) async {
+    await _guard(() async {
+      final normalized = username.trim();
+      if (normalized.isEmpty) {
+        throw const ApiException('Enter existing Marzban username.');
+      }
+      final accessToken = await _ensureAccessToken();
+      final linkResult = await _linkMarzbanUserWithCompatibility(
+        accessToken: accessToken,
+        marzbanUsername: normalized,
+      );
+      if (_me != null) {
+        _me = MeResponse(
+          userId: _me!.userId,
+          username: _me!.username,
+          authProvider: _me!.authProvider,
+          marzbanUsername: linkResult.marzbanUsername,
+          marzbanLinkStatus: linkResult.marzbanLinkStatus,
+        );
+      }
+      await _refreshDashboardInternal();
+      _setStatus('Marzban account linked.', StatusTone.success);
+    });
+  }
+
   Future<void> refreshVpnRuntimeStatus() async {
     await _guard(() async {
       _vpnState = await _vpnEngine.currentState();
@@ -302,11 +332,17 @@ class AppController extends ChangeNotifier {
         if (runtimeLink.isEmpty) {
           throw const ApiException('Runtime VPN config is missing.');
         }
+        final accessToken = await _ensureAccessToken();
+        final runtimeConfig = await _apiClient.fetchVpnRuntimeConfig(
+          accessToken: accessToken,
+          url: runtimeLink,
+        );
         final protocol =
             _firstConfigByProtocol(const ['sing-box-subscription', 'subscription'])?.protocol ??
                 'subscription';
         _vpnState = await _vpnEngine.connect(
           subscriptionUrl: runtimeLink,
+          runtimeConfig: runtimeConfig,
           protocol: protocol,
           username: username,
         );
@@ -391,6 +427,28 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<MeResponse> _linkMarzbanUserWithCompatibility({
+    required String accessToken,
+    required String marzbanUsername,
+  }) async {
+    try {
+      final response = await _apiClient.linkMarzbanUser(
+        accessToken: accessToken,
+        marzbanUsername: marzbanUsername,
+      );
+      _marzbanLinkEndpointUnsupported = false;
+      return response;
+    } on ApiException catch (error) {
+      if (error.statusCode == 404 || error.statusCode == 405 || error.statusCode == 501) {
+        _marzbanLinkEndpointUnsupported = true;
+        throw const ApiException(
+          'Server backend has not been updated for Marzban linking yet.',
+        );
+      }
+      rethrow;
+    }
+  }
+
   Future<void> _guard(Future<void> Function() action) async {
     _isLoading = true;
     notifyListeners();
@@ -425,6 +483,9 @@ class AppController extends ChangeNotifier {
     final subscription = await _authorizedCall((token) => _apiClient.getSubscription(token));
     final configs = await _authorizedCall((token) => _apiClient.getConfigs(token));
     _me = me;
+    if (me.marzbanLinkStatus == 'linked') {
+      _marzbanLinkEndpointUnsupported = false;
+    }
     _subscription = subscription;
     _configs = configs;
     if (!canToggleVpn) {

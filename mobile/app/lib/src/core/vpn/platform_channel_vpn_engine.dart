@@ -8,6 +8,7 @@ class PlatformChannelVpnEngine implements VpnEngine {
   @override
   Future<VpnRuntimeState> connect({
     required String subscriptionUrl,
+    String? runtimeConfig,
     required String protocol,
     required String username,
   }) async {
@@ -17,6 +18,7 @@ class PlatformChannelVpnEngine implements VpnEngine {
         'connect',
         <String, dynamic>{
           'subscriptionUrl': subscriptionUrl,
+          'runtimeConfig': runtimeConfig,
           'protocol': protocol,
           'username': username,
         },
@@ -140,18 +142,21 @@ class ResilientVpnEngine implements VpnEngine {
   @override
   Future<VpnRuntimeState> connect({
     required String subscriptionUrl,
+    String? runtimeConfig,
     required String protocol,
     required String username,
   }) async {
     try {
       return await _primary.connect(
         subscriptionUrl: subscriptionUrl,
+        runtimeConfig: runtimeConfig,
         protocol: protocol,
         username: username,
       );
     } on MissingPluginException {
       return _fallback.connect(
         subscriptionUrl: subscriptionUrl,
+        runtimeConfig: runtimeConfig,
         protocol: protocol,
         username: username,
       );

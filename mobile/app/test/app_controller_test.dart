@@ -57,6 +57,7 @@ void main() {
 
       expect(controller.authStage, AuthStage.authenticated);
       expect(controller.me?.userId, 'demo-user');
+      expect(controller.isMarzbanLinked, isFalse);
       expect(controller.subscription?.isActive, isTrue);
       expect(controller.configs, isNotEmpty);
       expect(apiClient.getMeCalls, 1);
@@ -151,6 +152,45 @@ void main() {
       expect(controller.vpnEnabled, isFalse);
       expect(vpnEngine.disconnectCalls, 1);
     });
+
+    test('linkMarzbanUser links existing account and refreshes dashboard', () async {
+      final sessionStore = InMemorySessionStore(
+        const PersistedSession(accessToken: 'access-1', refreshToken: 'refresh-1'),
+      );
+      final apiClient = FakeApiClient();
+      final controller = AppController(
+        config: const AppConfig(),
+        apiClient: apiClient,
+        sessionStore: sessionStore,
+      );
+      await controller.initialize();
+
+      await controller.linkMarzbanUser('legacy_vpn_user');
+
+      expect(apiClient.lastLinkedMarzbanUsername, 'legacy_vpn_user');
+      expect(apiClient.linkMarzbanUserCalls, 1);
+      expect(controller.marzbanUsername, 'legacy_vpn_user');
+      expect(controller.isMarzbanLinked, isTrue);
+    });
+
+    test('linkMarzbanUser reports unsupported server endpoint clearly', () async {
+      final sessionStore = InMemorySessionStore(
+        const PersistedSession(accessToken: 'access-1', refreshToken: 'refresh-1'),
+      );
+      final apiClient = FakeApiClient()..linkEndpointUnsupported = true;
+      final controller = AppController(
+        config: const AppConfig(),
+        apiClient: apiClient,
+        sessionStore: sessionStore,
+      );
+      await controller.initialize();
+
+      await controller.linkMarzbanUser('legacy_vpn_user');
+
+      expect(controller.isMarzbanLinkEndpointUnsupported, isTrue);
+      expect(controller.statusTone, StatusTone.error);
+      expect(controller.statusMessage, contains('Server backend has not been updated'));
+    });
   });
 }
 
@@ -181,10 +221,17 @@ class FakeApiClient extends ApiClient {
   int getMeCalls = 0;
   int refreshTokenCalls = 0;
   int logoutCalls = 0;
+  int fetchVpnRuntimeConfigCalls = 0;
+  int linkMarzbanUserCalls = 0;
   String? lastVerifyChallengeId;
   String? lastVerifyCode;
+  String? lastRuntimeConfigUrl;
+  String? lastRuntimeConfigAccessToken;
+  String? lastLinkedMarzbanUsername;
   bool failFirstMeWithUnauthorized = false;
+  bool linkEndpointUnsupported = false;
   String nextAccessToken = 'refreshed-access';
+  String? linkedMarzbanUsername;
 
   @override
   Future<MeResponse> getMe(String accessToken) async {
@@ -192,10 +239,32 @@ class FakeApiClient extends ApiClient {
     if (failFirstMeWithUnauthorized && getMeCalls == 1) {
       throw const ApiException('Invalid token', statusCode: 401);
     }
-    return const MeResponse(
+    return MeResponse(
       userId: 'demo-user',
       username: 'demo-user',
       authProvider: 'otp',
+      marzbanUsername: linkedMarzbanUsername,
+      marzbanLinkStatus: linkedMarzbanUsername == null ? 'pending' : 'linked',
+    );
+  }
+
+  @override
+  Future<MeResponse> linkMarzbanUser({
+    required String accessToken,
+    required String marzbanUsername,
+  }) async {
+    if (linkEndpointUnsupported) {
+      throw const ApiException('Not found', statusCode: 404);
+    }
+    linkMarzbanUserCalls += 1;
+    lastLinkedMarzbanUsername = marzbanUsername;
+    linkedMarzbanUsername = marzbanUsername;
+    return MeResponse(
+      userId: '',
+      username: '',
+      authProvider: '',
+      marzbanUsername: marzbanUsername,
+      marzbanLinkStatus: 'linked',
     );
   }
 
@@ -222,6 +291,17 @@ class FakeApiClient extends ApiClient {
         value: 'https://example.com/sub',
       ),
     ];
+  }
+
+  @override
+  Future<String> fetchVpnRuntimeConfig({
+    required String accessToken,
+    required String url,
+  }) async {
+    fetchVpnRuntimeConfigCalls += 1;
+    lastRuntimeConfigAccessToken = accessToken;
+    lastRuntimeConfigUrl = url;
+    return '{"log":{"level":"warn"},"outbounds":[],"inbounds":[]}';
   }
 
   @override
@@ -265,6 +345,7 @@ class FakeVpnEngine implements VpnEngine {
   @override
   Future<VpnRuntimeState> connect({
     required String subscriptionUrl,
+    String? runtimeConfig,
     required String protocol,
     required String username,
   }) async {

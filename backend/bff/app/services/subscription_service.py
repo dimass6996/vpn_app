@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models.subscription import Subscription
+from app.db.models.user import User
 from app.core.security import unix_timestamp_now, utcnow
 from app.services.audit_service import audit_service
 from app.services.marzban_client import (
@@ -11,6 +12,7 @@ from app.services.marzban_client import (
     MarzbanUnauthorizedError,
     marzban_client,
 )
+from app.services.marzban_link_service import marzban_link_service
 
 
 class SubscriptionService:
@@ -28,21 +30,21 @@ class SubscriptionService:
         selected_days = plan_days_map.get((plan_code or "").lower(), settings.default_provision_days)
         return unix_timestamp_now() + selected_days * 86400
 
-    def get_subscription(self, db: Session, user_id: str) -> dict[str, bool | int | None]:
+    def get_subscription(self, db: Session, user: User) -> dict[str, bool | int | None]:
         subscription = db.scalar(
-            select(Subscription).where(Subscription.user_external_id == user_id)
+            select(Subscription).where(Subscription.user_external_id == user.external_id)
         )
         if subscription is None:
-            subscription = self._sync_from_marzban(db=db, user_id=user_id)
+            subscription = self._sync_from_marzban(db=db, user=user)
 
         if subscription is None:
-            audit_service.log(db=db, user_id=user_id, action="subscription.read.missing")
+            audit_service.log(db=db, user_id=user.external_id, action="subscription.read.missing")
             return {"is_active": False, "expire_at_unix": None, "days_left": 0}
 
         days_left = self._calculate_days_left(subscription.expire_at_unix)
         audit_service.log(
             db=db,
-            user_id=user_id,
+            user_id=user.external_id,
             action="subscription.read",
             details=f"is_active={subscription.is_active};days_left={days_left}",
         )
@@ -85,13 +87,16 @@ class SubscriptionService:
             expire_at_unix=expire_at_unix,
         )
 
-    def _sync_from_marzban(self, db: Session, user_id: str) -> Subscription | None:
+    def _sync_from_marzban(self, db: Session, user: User) -> Subscription | None:
+        marzban_username = marzban_link_service.resolve_username(db=db, user=user, auto_create=True)
+        if not marzban_username:
+            return None
         try:
-            remote_user = marzban_client.get_user(user_id)
+            remote_user = marzban_client.get_user(marzban_username)
         except MarzbanUnauthorizedError:
             audit_service.log(
                 db=db,
-                user_id=user_id,
+                user_id=user.external_id,
                 action="marzban.sync.auth_error",
                 details="subscription lookup failed due to invalid Marzban credentials",
             )
@@ -99,7 +104,7 @@ class SubscriptionService:
         except MarzbanUnavailableError:
             audit_service.log(
                 db=db,
-                user_id=user_id,
+                user_id=user.external_id,
                 action="marzban.sync.unavailable",
                 details="subscription lookup failed due to temporary Marzban outage",
             )
@@ -107,7 +112,7 @@ class SubscriptionService:
         except MarzbanError as exc:
             audit_service.log(
                 db=db,
-                user_id=user_id,
+                user_id=user.external_id,
                 action="marzban.sync.error",
                 details=str(exc),
             )
@@ -119,7 +124,7 @@ class SubscriptionService:
         expire_at = remote_user.get("expire")
         subscription = self.set_subscription(
             db=db,
-            user_id=user_id,
+            user_id=user.external_id,
             is_active=bool(expire_at and expire_at > unix_timestamp_now()),
             expire_at_unix=expire_at,
         )

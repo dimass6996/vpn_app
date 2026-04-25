@@ -47,6 +47,7 @@ class VpnCoreStatus {
 abstract class VpnEngine {
   Future<VpnRuntimeState> connect({
     required String subscriptionUrl,
+    String? runtimeConfig,
     required String protocol,
     required String username,
   });
@@ -65,6 +66,7 @@ class StubVpnEngine implements VpnEngine {
   @override
   Future<VpnRuntimeState> connect({
     required String subscriptionUrl,
+    String? runtimeConfig,
     required String protocol,
     required String username,
   }) async {

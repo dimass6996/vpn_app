@@ -1,17 +1,22 @@
 from sqlalchemy.orm import Session
 
+from app.db.models.user import User
 from app.services.audit_service import audit_service
 from app.services.marzban_client import MarzbanError, marzban_client
+from app.services.marzban_link_service import marzban_link_service
 
 
 class ConfigService:
-    def get_configs(self, db: Session, user_id: str) -> list[dict[str, str]]:
+    def get_configs(self, db: Session, user: User) -> list[dict[str, str]]:
+        marzban_username = marzban_link_service.resolve_username(db=db, user=user, auto_create=True)
+        remote_user = None
         try:
-            remote_user = marzban_client.get_user(user_id)
+            if marzban_username:
+                remote_user = marzban_client.get_user(marzban_username)
         except MarzbanError as exc:
             audit_service.log(
                 db=db,
-                user_id=user_id,
+                user_id=user.external_id,
                 action="configs.read.marzban_error",
                 details=str(exc),
             )
@@ -27,7 +32,7 @@ class ConfigService:
 
         audit_service.log(
             db=db,
-            user_id=user_id,
+            user_id=user.external_id,
             action="configs.read",
             details=f"items={len(items)}",
         )

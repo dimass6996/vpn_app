@@ -35,6 +35,7 @@ class MainActivity : FlutterActivity() {
                         }
                         val protocol = (args?.get("protocol") as? String)?.uppercase() ?: "N/A"
                         val subscriptionUrl = args?.get("subscriptionUrl") as? String
+                        val runtimeConfig = args?.get("runtimeConfig") as? String
                         val location = runCatching {
                             val uri = java.net.URI(subscriptionUrl ?: "")
                             if (!uri.host.isNullOrBlank()) uri.host else "Auto route"
@@ -43,6 +44,7 @@ class MainActivity : FlutterActivity() {
                             action = ArbuzVpnService.ACTION_CONNECT
                             putExtra(ArbuzVpnService.EXTRA_PROTOCOL, protocol)
                             putExtra(ArbuzVpnService.EXTRA_SUBSCRIPTION_URL, subscriptionUrl ?: "")
+                            putExtra(ArbuzVpnService.EXTRA_RUNTIME_CONFIG, runtimeConfig ?: "")
                         }
                         startService(serviceIntent)
                         result.success(

@@ -29,11 +29,15 @@ class MeResponse {
     required this.userId,
     required this.username,
     required this.authProvider,
+    required this.marzbanLinkStatus,
+    this.marzbanUsername,
   });
 
   final String userId;
   final String username;
   final String authProvider;
+  final String? marzbanUsername;
+  final String marzbanLinkStatus;
 }
 
 class SubscriptionResponse {

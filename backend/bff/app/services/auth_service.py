@@ -18,6 +18,7 @@ from app.db.models.auth_session import AuthSession
 from app.db.models.user import User
 from app.services.audit_service import audit_service
 from app.services.auth_delivery_service import auth_delivery_service
+from app.services.marzban_link_service import marzban_link_service
 
 
 class AuthService:
@@ -131,6 +132,12 @@ class AuthService:
         challenge.is_used = True
         db.add(session)
         db.commit()
+
+        try:
+            marzban_link_service.resolve_username(db=db, user=user, auto_create=True)
+        except Exception:
+            # Auth should remain available even if Marzban is down.
+            pass
 
         access_token, _ = create_access_token(subject=user.external_id, session_id=session.id)
         audit_service.log(

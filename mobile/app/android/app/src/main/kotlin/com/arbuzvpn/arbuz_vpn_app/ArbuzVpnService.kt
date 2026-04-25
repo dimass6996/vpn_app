@@ -23,12 +23,14 @@ class ArbuzVpnService : VpnService() {
             ACTION_CONNECT -> {
                 val protocol = intent.getStringExtra(EXTRA_PROTOCOL)?.uppercase(Locale.US) ?: "N/A"
                 val subscriptionUrl = intent.getStringExtra(EXTRA_SUBSCRIPTION_URL).orEmpty()
+                val runtimeConfig = intent.getStringExtra(EXTRA_RUNTIME_CONFIG).orEmpty()
                 val location = extractLocation(subscriptionUrl)
                 thread(start = true, isDaemon = true, name = "arbuz-vpn-connect") {
                     establishTunnel(
                         protocol = protocol,
                         location = location,
                         runtimeProfileUrl = subscriptionUrl,
+                        runtimeConfig = runtimeConfig,
                     )
                 }
             }
@@ -50,6 +52,7 @@ class ArbuzVpnService : VpnService() {
         protocol: String,
         location: String,
         runtimeProfileUrl: String,
+        runtimeConfig: String,
     ) {
         if (vpnInterface != null) {
             ArbuzVpnStateHolder.update(
@@ -79,7 +82,7 @@ class ArbuzVpnService : VpnService() {
         }
 
         vpnInterface = descriptor
-        val coreStart = startNativeCore(runtimeProfileUrl)
+        val coreStart = startNativeCore(runtimeProfileUrl, runtimeConfig)
         if (!coreStart.started) {
             teardownTunnel(reason = coreStart.details)
             return
@@ -113,11 +116,11 @@ class ArbuzVpnService : VpnService() {
         }
     }
 
-    private fun startNativeCore(runtimeProfileUrl: String): CoreStartResult {
-        if (runtimeProfileUrl.isBlank()) {
+    private fun startNativeCore(runtimeProfileUrl: String, runtimeConfig: String): CoreStartResult {
+        if (runtimeProfileUrl.isBlank() && runtimeConfig.isBlank()) {
             return CoreStartResult(
                 started = false,
-                details = "Runtime profile URL is empty; tunnel has no outbound core.",
+                details = "Runtime profile payload is empty; tunnel has no outbound core.",
             )
         }
         val binary = resolveCoreBinary() ?: return CoreStartResult(
@@ -126,7 +129,11 @@ class ArbuzVpnService : VpnService() {
         )
         val configFile = File(filesDir, "singbox-runtime.json")
         return try {
-            val configFetch = writeRuntimeConfig(runtimeProfileUrl, configFile)
+            val configFetch = writeRuntimeConfig(
+                profileUrl = runtimeProfileUrl,
+                runtimeConfig = runtimeConfig,
+                destination = configFile,
+            )
             if (!configFetch.ok) {
                 return CoreStartResult(started = false, details = configFetch.details)
             }
@@ -170,7 +177,25 @@ class ArbuzVpnService : VpnService() {
         return null
     }
 
-    private fun writeRuntimeConfig(profileUrl: String, destination: File): ConfigFetchResult {
+    private fun writeRuntimeConfig(
+        profileUrl: String,
+        runtimeConfig: String,
+        destination: File,
+    ): ConfigFetchResult {
+        val inlineConfig = runtimeConfig.trim()
+        if (inlineConfig.isNotEmpty()) {
+            return validateAndWriteRuntimeConfig(
+                raw = inlineConfig,
+                destination = destination,
+                source = "inline runtime config",
+            )
+        }
+        if (profileUrl.isBlank()) {
+            return ConfigFetchResult(
+                ok = false,
+                details = "Runtime profile URL is empty",
+            )
+        }
         val connection = try {
             URL(profileUrl).openConnection() as HttpURLConnection
         } catch (exc: Exception) {
@@ -198,26 +223,10 @@ class ArbuzVpnService : VpnService() {
                         details = "Runtime config response is empty",
                     )
                 } else {
-                    runCatching { JSONObject(raw) }.fold(
-                        onSuccess = {
-                            destination.writeText(raw)
-                            ConfigFetchResult(
-                                ok = true,
-                                details = "Runtime config downloaded",
-                            )
-                        },
-                        onFailure = {
-                            val snippet = raw.take(180).replace("\n", " ")
-                            val hint = if (raw.contains("://")) {
-                                "Looks like subscription links, not sing-box JSON."
-                            } else {
-                                "Response is not a sing-box JSON object."
-                            }
-                            ConfigFetchResult(
-                                ok = false,
-                                details = "$hint Snippet: $snippet",
-                            )
-                        },
+                    validateAndWriteRuntimeConfig(
+                        raw = raw,
+                        destination = destination,
+                        source = "downloaded runtime config",
                     )
                 }
             }
@@ -229,6 +238,34 @@ class ArbuzVpnService : VpnService() {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun validateAndWriteRuntimeConfig(
+        raw: String,
+        destination: File,
+        source: String,
+    ): ConfigFetchResult {
+        return runCatching { JSONObject(raw) }.fold(
+            onSuccess = {
+                destination.writeText(raw)
+                ConfigFetchResult(
+                    ok = true,
+                    details = source.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
+                )
+            },
+            onFailure = {
+                val snippet = raw.take(180).replace("\n", " ")
+                val hint = if (raw.contains("://")) {
+                    "Looks like subscription links, not sing-box JSON."
+                } else {
+                    "Response is not a sing-box JSON object."
+                }
+                ConfigFetchResult(
+                    ok = false,
+                    details = "$hint Snippet: $snippet",
+                )
+            },
+        )
     }
 
     private fun consumeLogs(process: Process) {
@@ -282,6 +319,7 @@ class ArbuzVpnService : VpnService() {
         const val ACTION_CONNECT = "com.arbuzvpn.arbuz_vpn_app.ACTION_CONNECT"
         const val ACTION_DISCONNECT = "com.arbuzvpn.arbuz_vpn_app.ACTION_DISCONNECT"
         const val EXTRA_SUBSCRIPTION_URL = "subscription_url"
+        const val EXTRA_RUNTIME_CONFIG = "runtime_config"
         const val EXTRA_PROTOCOL = "protocol"
     }
 

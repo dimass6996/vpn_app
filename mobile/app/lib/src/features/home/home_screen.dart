@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../shared/app_button.dart';
 import '../../shared/app_card.dart';
+import '../../shared/app_input.dart';
 import '../../shared/app_reveal.dart';
 import '../../shared/app_theme.dart';
 import '../app_shell/app_controller.dart';
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+  final _marzbanUsernameController = TextEditingController();
   late final AnimationController _pulseController = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1900),
@@ -24,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _marzbanUsernameController.dispose();
     _pulseController.dispose();
     super.dispose();
   }
@@ -35,6 +38,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final isConnected = widget.controller.vpnEnabled;
     final canToggle = widget.controller.canToggleVpn;
     final primaryConfig = widget.controller.primarySubscriptionLink;
+    final isMarzbanLinked = widget.controller.isMarzbanLinked;
+    final marzbanLinkStatus = widget.controller.marzbanLinkStatus;
+    final linkedMarzbanUsername = widget.controller.marzbanUsername;
+    final linkEndpointUnsupported = widget.controller.isMarzbanLinkEndpointUnsupported;
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -74,6 +81,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 _MetaLine(label: 'Location', value: widget.controller.activeLocation),
                 const SizedBox(height: AppSpacing.xs),
                 _MetaLine(label: 'Days left', value: '${subscription?.daysLeft ?? 0}'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        AppReveal(
+          delay: const Duration(milliseconds: 120),
+          child: AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Marzban link', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  isMarzbanLinked
+                      ? 'Linked to ${linkedMarzbanUsername ?? 'existing account'}.'
+                      : 'App account is not linked to an existing Marzban user yet.',
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Status: $marzbanLinkStatus',
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+                if (!isMarzbanLinked) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  if (linkEndpointUnsupported) ...[
+                    const Text(
+                      'Current server backend does not support manual Marzban linking yet.',
+                      style: TextStyle(color: Color(0xFFFFBABA)),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
+                  AppInput(
+                    controller: _marzbanUsernameController,
+                    label: 'Existing Marzban username',
+                    hint: 'legacy_vpn_user',
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  AppButton(
+                    label: 'Link existing account',
+                    icon: Icons.link_outlined,
+                    onPressed: widget.controller.isLoading || linkEndpointUnsupported
+                        ? null
+                        : () => widget.controller.linkMarzbanUser(
+                              _marzbanUsernameController.text,
+                            ),
+                    expanded: true,
+                  ),
+                ],
               ],
             ),
           ),

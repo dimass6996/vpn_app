@@ -74,6 +74,27 @@ class ApiClient {
       userId: data['user_id'] as String,
       username: data['username'] as String,
       authProvider: data['auth_provider'] as String,
+      marzbanUsername: data['marzban_username'] as String?,
+      marzbanLinkStatus: (data['marzban_link_status'] as String?) ?? 'pending',
+    );
+  }
+
+  Future<MeResponse> linkMarzbanUser({
+    required String accessToken,
+    required String marzbanUsername,
+  }) async {
+    final data = await _sendJson(
+      method: 'POST',
+      path: '/me/marzban/link',
+      accessToken: accessToken,
+      body: {'marzban_username': marzbanUsername},
+    );
+    return MeResponse(
+      userId: '',
+      username: '',
+      authProvider: '',
+      marzbanUsername: data['marzban_username'] as String?,
+      marzbanLinkStatus: (data['marzban_link_status'] as String?) ?? 'pending',
     );
   }
 
@@ -106,6 +127,46 @@ class ApiClient {
           ),
         )
         .toList();
+  }
+
+  Future<String> fetchVpnRuntimeConfig({
+    required String accessToken,
+    required String url,
+  }) async {
+    try {
+      final request = await _httpClient.getUrl(Uri.parse(url));
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+      final response = await request.close().timeout(const Duration(seconds: 20));
+      final rawBody = await utf8.decodeStream(response);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ApiException.fromResponse(
+          statusCode: response.statusCode,
+          rawBody: rawBody,
+        );
+      }
+      final trimmed = rawBody.trim();
+      if (trimmed.isEmpty) {
+        throw const ApiException('Runtime config response is empty.');
+      }
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is! Map<String, dynamic>) {
+          throw const ApiException('Runtime config is not a sing-box JSON object.');
+        }
+      } on FormatException {
+        final snippet = trimmed.substring(0, trimmed.length > 180 ? 180 : trimmed.length);
+        final hint = trimmed.contains('://')
+            ? 'Runtime config looks like subscription links, not sing-box JSON.'
+            : 'Runtime config is not valid JSON.';
+        throw ApiException('$hint Snippet: $snippet');
+      }
+      return trimmed;
+    } on TimeoutException {
+      throw const ApiException('Runtime config request timed out.');
+    } on SocketException {
+      throw const ApiException('Cannot reach runtime config URL.');
+    }
   }
 
   Future<void> createSupportRequest({
