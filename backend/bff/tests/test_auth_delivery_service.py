@@ -5,6 +5,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.db.base import Base
+from app.db.models.telegram_chat_link import TelegramChatLink
+from app.db.session import SessionLocal, engine
 from app.services.auth_delivery_service import AuthDeliveryService
 
 
@@ -28,6 +31,11 @@ class _JsonDummyResponse(_DummyResponse):
 
     def json(self) -> dict[str, object]:
         return self._payload
+
+
+def reset_db() -> None:
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
 
 
 def test_http_provider_sends_otp_payload(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,6 +211,55 @@ def test_telegram_provider_returns_404_when_user_not_found(
     with pytest.raises(HTTPException) as exc:
         AuthDeliveryService().issue_code("missing_user", "device-1", "challenge-1")
     assert exc.value.status_code == 404
+
+    settings.auth_provider = previous_provider
+    settings.auth_telegram_bot_token = previous_token
+    settings.auth_telegram_api_base = previous_api_base
+
+
+def test_telegram_provider_uses_cached_chat_id_without_get_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_db()
+    previous_provider = settings.auth_provider
+    previous_token = settings.auth_telegram_bot_token
+    previous_api_base = settings.auth_telegram_api_base
+
+    captured: dict[str, object] = {}
+
+    class DummyClient:
+        def __init__(self, *, timeout: float, trust_env: bool) -> None:
+            _ = (timeout, trust_env)
+
+        def __enter__(self) -> "DummyClient":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            _ = (exc_type, exc, tb)
+
+        def get(self, url: str, *, params: dict[str, object]):
+            raise AssertionError("getUpdates must not be called when chat_id is cached")
+
+        def post(self, url: str, *, json: dict[str, object]):
+            captured["url"] = url
+            captured["json"] = json
+            return _DummyResponse(200)
+
+    monkeypatch.setattr(httpx, "Client", DummyClient)
+    settings.auth_provider = "telegram"
+    settings.auth_telegram_bot_token = "bot-token-1"
+    settings.auth_telegram_api_base = "https://api.telegram.org"
+
+    with SessionLocal() as db:
+        db.add(TelegramChatLink(telegram_username="cached_user", chat_id=99887766))
+        db.commit()
+        issued = AuthDeliveryService().issue_code("cached_user", "device-1", "challenge-1", db=db)
+
+    assert issued.method == "otp"
+    assert captured["url"] == "https://api.telegram.org/botbot-token-1/sendMessage"
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    assert payload["chat_id"] == 99887766
 
     settings.auth_provider = previous_provider
     settings.auth_telegram_bot_token = previous_token

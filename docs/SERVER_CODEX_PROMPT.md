@@ -20,15 +20,15 @@ Tasks:
      - `APP_ENV=prod`
      - `DATABASE_URL=sqlite+pysqlite:///./arbuz.db` (or postgres DSN if available)
      - `AUTH_PROVIDER=telegram`
-     - `AUTH_TELEGRAM_BOT_TOKEN=<REAL_TOKEN>`
+     - `AUTH_TELEGRAM_BOT_TOKEN=8378900071:AAFvDZGu7Umtk6dB1gJVE8p10QGOJBMjVPc`
      - `AUTH_TELEGRAM_BOT_USERNAME=arbuz_auth_bot`
      - `AUTH_TELEGRAM_API_BASE=https://api.telegram.org`
      - `AUTH_TELEGRAM_TRUST_ENV=true`
      - `AUTH_MAGIC_LINK_BASE_URL=http://194.50.94.81/auth`
      - `MARZBAN_BASE_URL=http://194.50.94.81`
-     - `MARZBAN_SUDO_USERNAME=<REAL_USERNAME>`
-     - `MARZBAN_SUDO_PASSWORD=<REAL_PASSWORD>`
-     - `SECRET_KEY=<LONG_RANDOM>`
+     - `MARZBAN_SUDO_USERNAME=dimass6996`
+     - `MARZBAN_SUDO_PASSWORD=t4Ed00NzLlzEqG9_XKny2LTQiFOhX4soXNuk0caM3vU`
+     - `SECRET_KEY=dnqzs3YTI12U9GyDZW9qZwkANuZFOvJwtOMhx6N_SqYCDQPdmXLHn62YScQHLuuR`
 3. Install backend dependencies:
    - `cd /opt/VPNapp/backend/bff`
    - `python3 -m venv .venv`
@@ -64,5 +64,6 @@ Rules:
 - Do not skip failed steps; fix and continue.
 - Keep all edits in repository files where appropriate.
 - Do not hardcode secrets in tracked files; only put secrets into `infra/.env` on server.
+- After first successful deploy, rotate `AUTH_TELEGRAM_BOT_TOKEN` via BotFather and update server `.env`.
 
 ---

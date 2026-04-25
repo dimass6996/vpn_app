@@ -57,7 +57,7 @@ class AuthService:
 
         challenge_id = secrets.token_urlsafe(18)
         expires_at = now + timedelta(minutes=settings.auth_challenge_ttl_minutes)
-        issued_code = auth_delivery_service.issue_code(login, device_id, challenge_id)
+        issued_code = auth_delivery_service.issue_code(login, device_id, challenge_id, db=db)
         challenge = AuthChallenge(
             id=challenge_id,
             login=login,
