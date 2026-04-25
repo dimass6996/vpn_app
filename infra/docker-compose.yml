@@ -1,0 +1,40 @@
+services:
+  bff:
+    build:
+      context: ../backend/bff
+      dockerfile: Dockerfile
+    container_name: arbuz_bff
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: arbuz_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: arbuz_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
