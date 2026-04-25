@@ -171,7 +171,14 @@ class ArbuzVpnService : VpnService() {
     }
 
     private fun writeRuntimeConfig(profileUrl: String, destination: File): ConfigFetchResult {
-        val connection = URL(profileUrl).openConnection() as HttpURLConnection
+        val connection = try {
+            URL(profileUrl).openConnection() as HttpURLConnection
+        } catch (exc: Exception) {
+            return ConfigFetchResult(
+                ok = false,
+                details = "Invalid runtime profile URL: ${exc.message}",
+            )
+        }
         connection.connectTimeout = 8000
         connection.readTimeout = 10000
         connection.requestMethod = "GET"
@@ -200,14 +207,25 @@ class ArbuzVpnService : VpnService() {
                             )
                         },
                         onFailure = {
+                            val snippet = raw.take(180).replace("\n", " ")
+                            val hint = if (raw.contains("://")) {
+                                "Looks like subscription links, not sing-box JSON."
+                            } else {
+                                "Response is not a sing-box JSON object."
+                            }
                             ConfigFetchResult(
                                 ok = false,
-                                details = "Runtime config is not valid JSON object",
+                                details = "$hint Snippet: $snippet",
                             )
                         },
                     )
                 }
             }
+        } catch (exc: Exception) {
+            ConfigFetchResult(
+                ok = false,
+                details = "Runtime config fetch failed: ${exc.javaClass.simpleName}: ${exc.message}",
+            )
         } finally {
             connection.disconnect()
         }
